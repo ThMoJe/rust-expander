@@ -1,0 +1,713 @@
+import { ScrollView } from "std-widgets.slint";
+
+// Data model for the snippet table
+export struct SnippetModel {
+    trigger: string,
+    replacement: string,
+    mode: string,  // "immediate" or "hotkey"
+}
+
+export component AppTray inherits SystemTrayIcon {
+    icon: @image-url("icon.png");
+    in-out property <string> tray-tooltip-text: "Rust-Expander\nClick for settings";
+    in-out property <string> tray-open-text: "Open settings";
+    in-out property <string> tray-quit-text: "Quit";
+    
+    tooltip: tray-tooltip-text;
+    
+    // Left-click on tray icon opens settings directly
+    clicked => { open-settings(); }
+    
+    Menu {
+        MenuItem {
+            title: tray-open-text;
+            activated => { open-settings(); }
+        }
+        MenuItem {
+            title: tray-quit-text;
+            activated => { quit-app(); }
+        }
+    }
+    
+    callback open-settings();
+    callback quit-app();
+}
+
+export component ConfigWindow inherits Window {
+    in-out property <string> window-title-text: "Rust-Expander - Settings";
+    title: window-title-text;
+    icon: @image-url("icon.png");
+    min-width: 722px;
+    min-height: 485px;
+    preferred-width: 722px;
+    preferred-height: 485px;
+    default-font-size: 14px;
+    background: #1e1e2e;
+    
+    // Properties bound from Rust
+    in-out property <string> hotkey-display: "CTRL+SHIFT+T";
+    in-out property <bool> hotkey-capturing: false;
+    in-out property <bool> hotkey-conflict: false;
+    in-out property <bool> hotkey-can-save: false;
+    in-out property <[SnippetModel]> snippets;
+    in-out property <string> buffer-content: "";
+    in-out property <string> config-file-path: "";
+    
+    // i18n string properties (set from Rust)
+    in-out property <string> i18n-header: "Settings";
+    in-out property <string> i18n-hotkey-label: "Global hotkey:";
+    in-out property <string> i18n-hotkey-save: "Set";
+    in-out property <string> i18n-hotkey-prompt: "Press new key combination";
+    in-out property <string> i18n-buffer-label: "Buffer:";
+    in-out property <string> i18n-buffer-empty: "(empty)";
+    in-out property <string> i18n-col-trigger: "Trigger (max 10)";
+    in-out property <string> i18n-col-replacement: "Replacement";
+    in-out property <string> i18n-col-mode: "Mode";
+    in-out property <string> i18n-mode-immediate: "⚡ Immediate";
+    in-out property <string> i18n-mode-hotkey: "⌨ Hotkey";
+    in-out property <string> i18n-btn-delete: "✕ Delete";
+    in-out property <string> i18n-btn-add: "+ Add new";
+    in-out property <string> i18n-btn-quit: "Quit";
+    in-out property <string> i18n-btn-cancel: "Cancel";
+    in-out property <string> i18n-btn-save: "Save";
+    in-out property <string> i18n-current-lang: "English";
+    in-out property <string> i18n-uninstall-btn: "\u{2620}";
+    in-out property <string> i18n-uninstall-tooltip: "Uninstall and delete app and its files";
+    in-out property <string> i18n-col-trigger-tooltip: "When you type any of these character sequences they will be replaced either immediately or when you press the set Hotkey";
+    in-out property <string> i18n-btn-pause: "⏸ Pause";
+    in-out property <string> i18n-btn-resume: "▶ Resume";
+    in-out property <string> i18n-btn-pause-tooltip: "Temporarily pause replacing text you type";
+    in-out property <string> i18n-btn-cancel-tooltip: "Cancel changes";
+    in-out property <string> save-error-message: "";
+    in-out property <bool> is-paused: false;
+    
+    // Callbacks to Rust
+    callback save-config();
+    callback cancel-config();
+    callback add-snippet();
+    callback remove-snippet(int);
+    callback hotkey-clicked();
+    callback key-recorded(string, bool, bool, bool, bool) -> bool;
+    callback save-hotkey();
+    callback quit-app();
+    callback language-changed(string);
+    callback uninstall-app();
+    callback open-config-folder();
+    callback toggle-pause();
+    
+    // Full-window Rectangle ensures the dark background always fills the window,
+    // even after hide/show cycles where Window.background may not redraw correctly.
+    Rectangle {
+        background: #1e1e2e;
+        width: 100%;
+        height: 100%;
+        
+        VerticalLayout {
+            width: 100%;
+            height: 100%;
+            padding: 20px;
+            spacing: 12px;
+        
+        // Header with language toggle
+        HorizontalLayout {
+            vertical-stretch: 0;
+            height: 28px;
+            spacing: 12px;
+            
+            Text {
+                text: i18n-header;
+                font-size: 20px;
+                font-weight: 700;
+                color: #cdd6f4;
+                vertical-alignment: center;
+            }
+            
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: 6px;
+                alignment: center;
+                
+                Text {
+                    text: config-file-path;
+                    font-size: 11px;
+                    color: #a6adc8;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                
+                Rectangle {
+                    width: 26px;
+                    height: 24px;
+                    border-radius: 4px;
+                    background: folder-touch.has-hover ? #45475a : #313244;
+                    border-width: 1px;
+                    border-color: folder-touch.has-hover ? #585b70 : #45475a;
+                    
+                    folder-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { open-config-folder(); }
+                    }
+                    
+                    Text {
+                        text: "📁";
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+            
+            // Language toggle button
+            Rectangle {
+                border-width: 0px;
+                border-radius: 6px;
+                background: #89b4fa;
+                width: 110px;
+                height: 28px;
+                
+                Text {
+                    text: i18n-current-lang;
+                    color: #1e1e2e;
+                    font-weight: 600;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+                
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        if (i18n-current-lang == "English") {
+                            language-changed("da");
+                        } else {
+                            language-changed("en");
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Divider
+        Rectangle { height: 1px; background: #45475a; vertical-stretch: 0; }
+        
+        // Hotkey & Buffer section
+        HorizontalLayout {
+            vertical-stretch: 0;
+            height: 36px;
+            spacing: 10px;
+            
+            Text {
+                text: i18n-hotkey-label;
+                color: #bac2de;
+                vertical-alignment: center;
+            }
+            
+            hotkey-box := FocusScope {
+                width: 220px;
+                height: 36px;
+                
+                Rectangle {
+                    border-width: 1px;
+                    border-color: hotkey-conflict ? #f38ba8 : (hotkey-capturing ? #89b4fa : #585b70);
+                    border-radius: 6px;
+                    background: hotkey-conflict ? #5a1e2e : (hotkey-capturing ? #1e3a5f : #313244);
+                    
+                    Text {
+                        text: hotkey-display;
+                        color: hotkey-conflict ? #f38ba8 : (hotkey-capturing ? #f9e2af : #a6e3a1);
+                        font-weight: 600;
+                        font-size: hotkey-conflict ? 12px : 14px;
+                        font-italic: hotkey-capturing;
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+                }
+                
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        hotkey-box.focus();
+                        root.hotkey-capturing = true;
+                        root.hotkey-conflict = false;
+                        root.hotkey-can-save = false;
+                        root.hotkey-display = root.i18n-hotkey-prompt;
+                        root.hotkey-clicked();
+                    }
+                }
+                
+                key-pressed(event) => {
+                    if (root.hotkey-capturing) {
+                        if (root.key-recorded(
+                            event.text,
+                            event.modifiers.control,
+                            event.modifiers.alt,
+                            event.modifiers.shift,
+                            event.modifiers.meta
+                        )) {
+                            return accept;
+                        }
+                    }
+                    return reject;
+                }
+            }
+            
+            // Save button for hotkey
+            Rectangle {
+                border-width: 1px;
+                border-color: hotkey-can-save ? #89b4fa : #45475a;
+                border-radius: 6px;
+                background: hotkey-can-save ? #89b4fa : #313244;
+                width: 70px;
+                height: 36px;
+                opacity: hotkey-can-save ? 1.0 : 0.45;
+                
+                Text {
+                    text: i18n-hotkey-save;
+                    color: hotkey-can-save ? #1e1e2e : #6c7086;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+                
+                TouchArea {
+                    enabled: hotkey-can-save;
+                    mouse-cursor: hotkey-can-save ? pointer : default;
+                    clicked => { root.save-hotkey(); }
+                }
+            }
+            
+            // Spacing before buffer
+            Rectangle { width: 6px; }
+            
+            // Live buffer display
+            Text {
+                text: i18n-buffer-label;
+                color: #bac2de;
+                vertical-alignment: center;
+            }
+            
+            Rectangle {
+                border-width: 1px;
+                border-color: #45475a;
+                border-radius: 6px;
+                background: #181825;
+                horizontal-stretch: 1;
+                min-width: 120px;
+                height: 36px;
+                
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    
+                    Text {
+                        text: buffer-content == "" ? i18n-buffer-empty : buffer-content;
+                        color: buffer-content == "" ? #585b70 : #f9e2af;
+                        font-family: "Consolas";
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        horizontal-alignment: left;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+        
+        // Divider
+        Rectangle { height: 1px; background: #45475a; vertical-stretch: 0; }
+        
+        // Snippet table header
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: 6px;
+            height: 28px;
+            
+            Rectangle {
+                width: 130px;
+                Text { text: i18n-col-trigger; font-weight: 700; color: #89b4fa; vertical-alignment: center; font-size: 12px; }
+            }
+            Rectangle {
+                min-width: 200px;
+                horizontal-stretch: 1;
+                Text { text: i18n-col-replacement; font-weight: 700; color: #89b4fa; vertical-alignment: center; }
+            }
+            Rectangle {
+                width: 110px;
+                Text { text: i18n-col-mode; font-weight: 700; color: #89b4fa; vertical-alignment: center; }
+            }
+            Rectangle { width: 64px; }
+        }
+        
+        // Snippet list — Flickable for scroll + manual scrollbar track/thumb
+        HorizontalLayout {
+            min-height: 150px;
+            vertical-stretch: 1;
+            spacing: 4px;
+
+            snippet-list := Flickable {
+                horizontal-stretch: 1;
+                interactive: true;
+                // viewport-height is left unbounded so dynamically-sized rows (multi-line
+                // replacement text) scroll correctly. Slint measures each row naturally.
+                viewport-height: max(self.preferred-height, self.height);
+
+                VerticalLayout {
+                    spacing: 6px;
+
+                    for snippet[index] in snippets: HorizontalLayout {
+
+                    spacing: 6px;
+                    // Height is driven by the tallest child (the replacement textarea).
+                    // min-height ensures collapsed rows never shrink below one text line.
+                    
+                    // Trigger field (max 10 characters)
+                    Rectangle {
+                        border-width: 1px;
+                        border-color: #585b70;
+                        border-radius: 4px;
+                        background: #313244;
+                        width: 130px;
+                        min-height: 38px;
+                        vertical-stretch: 0;
+                        
+                        trigger-input := TextInput {
+                            text: snippet.trigger;
+                            color: #cdd6f4;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                            horizontal-alignment: left;
+                            x: 8px;
+                            width: parent.width - 16px;
+                            edited => {
+                                // Enforce max 10 character limit on trigger sequences
+                                if self.text.character-count > 10 {
+                                    self.text = snippet.trigger;
+                                } else {
+                                    snippets[index].trigger = self.text;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Replacement field - multi-line textarea with always-visible scrollbar
+                    // Enter inserts a newline; Ctrl+Enter moves focus away.
+                    Rectangle {
+                        border-width: 1px;
+                        border-color: repl-input.has-focus ? #89b4fa : #585b70;
+                        border-radius: 4px;
+                        background: #313244;
+                        min-width: 200px;
+                        horizontal-stretch: 1;
+                        // Collapsed (2-line default) when unfocused; expands to content (max 100px) when focused
+                        height: (trigger-input.has-focus || repl-input.has-focus)
+                            ? min(max(repl-input.preferred-height + 12px, 38px), 100px)
+                            : 38px;
+                        animate height { duration: 150ms; easing: ease-in-out; }
+
+                        repl-scroll := Flickable {
+                            x: 6px;
+                            y: 4px;
+                            width: parent.width - 24px;
+                            height: parent.height - 8px;
+                            interactive: true;
+                            viewport-height: max(repl-input.preferred-height, self.height);
+
+                            repl-input := TextInput {
+                                text: snippet.replacement;
+                                color: #cdd6f4;
+                                single-line: false;
+                                wrap: char-wrap;
+                                width: repl-scroll.width;
+                                height: max(self.preferred-height, repl-scroll.height);
+                                vertical-alignment: top;
+                                horizontal-alignment: left;
+
+                                edited => {
+                                    snippets[index].replacement = self.text;
+                                }
+                                key-pressed(event) => {
+                                    if (event.text == "\n" && event.modifiers.control) {
+                                        self.clear-focus();
+                                        accept
+                                    } else {
+                                        reject
+                                    }
+                                }
+                                cursor-position-changed(cursor-pos) => {
+                                    // Keep the cursor line visible when navigating with arrow keys or mouse clicks.
+                                    // cursor-pos.y is the cursor pixel position relative to TextInput top.
+                                    // Line height approximated at 22px (14px font * ~1.2 line spacing + rounding).
+                                    if (cursor-pos.y < -repl-scroll.viewport-y) {
+                                        // Cursor above visible area — scroll up
+                                        repl-scroll.viewport-y = -cursor-pos.y;
+                                    } else if (cursor-pos.y + 22px > -repl-scroll.viewport-y + repl-scroll.height) {
+                                        // Cursor below visible area — scroll down
+                                        repl-scroll.viewport-y = -(cursor-pos.y + 22px - repl-scroll.height);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Always-visible scrollbar track (right side, inside border)
+                        Rectangle {
+                            x: parent.width - 14px;
+                            y: 4px;
+                            width: 8px;
+                            height: parent.height - 8px;
+                            background: #2a2a3e;
+                            border-radius: 4px;
+
+                            Rectangle {
+                                width: 8px;
+                                border-radius: 4px;
+                                background: repl-input.has-focus ? #89b4fa : #585b70;
+
+                                height: max(
+                                    14px,
+                                    parent.height * repl-scroll.height / max(1px, repl-scroll.viewport-height)
+                                );
+
+                                y: (parent.height - self.height)
+                                    * (-repl-scroll.viewport-y)
+                                    / max(1px, repl-scroll.viewport-height - repl-scroll.height);
+
+                                animate y { duration: 60ms; easing: ease-out; }
+                            }
+                        }
+                    }
+                    
+                    // Mode toggle button
+                    Rectangle {
+                        border-width: 1px;
+                        border-color: snippet.mode == "immediate" ? #74c7ec : #fab387;
+                        border-radius: 4px;
+                        width: 110px;
+                        min-height: 38px;
+                        vertical-stretch: 0;
+                        background: snippet.mode == "immediate" ? #1e3a5f : #3d2e1f;
+                        
+                        Text {
+                            text: snippet.mode == "immediate" ? i18n-mode-immediate : i18n-mode-hotkey;
+                            color: snippet.mode == "immediate" ? #74c7ec : #fab387;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                            horizontal-alignment: center;
+                        }
+                        
+                        TouchArea {
+                            clicked => {
+                                if snippet.mode == "immediate" {
+                                    snippets[index].mode = "hotkey";
+                                } else {
+                                    snippets[index].mode = "immediate";
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Delete button
+                    Rectangle {
+                        border-width: 1px;
+                        border-color: #f38ba8;
+                        border-radius: 4px;
+                        width: 64px;
+                        min-height: 38px;
+                        vertical-stretch: 0;
+                        background: #3d1f2e;
+                        
+                        Text {
+                            text: i18n-btn-delete;
+                            color: #f38ba8;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                            horizontal-alignment: center;
+                        }
+                        
+                        TouchArea {
+                            clicked => { remove-snippet(index); }
+                        }
+                    }
+                }
+            }
+            } // snippet-list Flickable
+
+            // Scrollbar track — only visible when content overflows
+            Rectangle {
+                width: 8px;
+                background: #2a2a3e;
+                border-radius: 4px;
+                visible: snippet-list.viewport-height > snippet-list.height;
+
+                // Thumb — height and position mirror the Flickable scroll state
+                Rectangle {
+                    width: 8px;
+                    border-radius: 4px;
+                    background: #585b70;
+
+                    // Thumb height = track_h × (visible_h / content_h)
+                    height: max(
+                        24px,
+                        parent.height * snippet-list.height / snippet-list.viewport-height
+                    );
+
+                    // Thumb y = (track_h - thumb_h) × (scroll_offset / scrollable_range)
+                    y: (parent.height - self.height)
+                        * (-snippet-list.viewport-y)
+                        / max(1px, snippet-list.viewport-height - snippet-list.height);
+
+                    animate y { duration: 60ms; easing: ease-out; }
+                }
+            }
+        } // outer HorizontalLayout (list + scrollbar)
+
+        // Add button
+        HorizontalLayout {
+            vertical-stretch: 0;
+            alignment: start;
+            
+            Rectangle {
+                border-width: 1px;
+                border-color: #a6e3a1;
+                border-radius: 6px;
+                background: #1f3d2e;
+                min-width: 130px;
+                height: 34px;
+                
+                Text {
+                    text: i18n-btn-add;
+                    color: #a6e3a1;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+                
+                TouchArea {
+                    clicked => { add-snippet(); }
+                }
+            }
+        }
+        
+        // Divider
+        Rectangle { height: 1px; background: #45475a; vertical-stretch: 0; }
+        
+        // Bottom button bar: Quit (left) | Cancel + Save (right)
+        HorizontalLayout {
+            vertical-stretch: 0;
+            spacing: 10px;
+            
+            // Quit button (left-aligned)
+            Rectangle {
+                border-width: 0px;
+                border-radius: 6px;
+                background: #89b4fa;
+                min-width: 90px;
+                height: 38px;
+                
+                Text {
+                    text: i18n-btn-quit;
+                    color: #1e1e2e;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+                
+                TouchArea {
+                    clicked => { quit-app(); }
+                }
+            }
+
+            // Skull icon — self-destruct / uninstall button
+            Rectangle {
+                border-width: 1px;
+                border-radius: 6px;
+                width: 38px;
+                height: 38px;
+
+                Text {
+                    text: i18n-uninstall-btn;
+                    font-size: 18px;
+                    color: ta-uninstall.has-hover ? #f38ba8 : #cdd6f4;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+
+                ta-uninstall := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { uninstall-app(); }
+                }
+
+                // Reactive hover glow — single binding, no duplicate
+                border-color: ta-uninstall.has-hover ? #f38ba8 : #6c7086;
+                background: ta-uninstall.has-hover ? #3d1f2e : #2a2a3e;
+
+                // Tooltip popup above button on hover
+                if ta-uninstall.has-hover : Rectangle {
+                    x: 0px;
+                    y: -34px;
+                    width: tooltip-text.preferred-width + 16px;
+                    height: 26px;
+                    background: #e6e9ef;
+                    border-width: 1px;
+                    border-color: #bcc0cc;
+                    border-radius: 4px;
+                    drop-shadow-blur: 4px;
+                    drop-shadow-color: #00000088;
+                    
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        tooltip-text := Text {
+                            text: i18n-uninstall-tooltip;
+                            font-size: 11px;
+                            color: #11111b;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+            
+            // Spacer pushes remaining buttons to the right
+            Rectangle { horizontal-stretch: 1; }
+            
+            Rectangle {
+                border-width: 1px;
+                border-color: #585b70;
+                border-radius: 6px;
+                background: #313244;
+                min-width: 110px;
+                height: 38px;
+                
+                Text {
+                    text: i18n-btn-cancel;
+                    color: #bac2de;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+                
+                TouchArea {
+                    clicked => { cancel-config(); }
+                }
+            }
+            
+            Rectangle {
+                border-width: 0px;
+                border-radius: 6px;
+                background: #89b4fa;
+                min-width: 110px;
+                height: 38px;
+                
+                Text {
+                    text: i18n-btn-save;
+                    color: #1e1e2e;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+                
+                TouchArea {
+                    clicked => { save-config(); }
+                }
+            }
+        } // HorizontalLayout (button bar)
+        } // VerticalLayout
+    } // Rectangle wrapper
+}

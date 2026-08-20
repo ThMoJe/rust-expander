@@ -1,0 +1,55 @@
+[package]
+name = "rust-expander"
+version = "0.1.0"
+edition = "2024"
+description = "A lightweight, native Windows text expander for ARM64 and x86_64"
+authors = ["ThMoJe"]
+license = "MIT"
+repository = "https://github.com/ThMoJe/rust-expander"
+homepage = "https://github.com/ThMoJe/rust-expander"
+readme = "README.md"
+keywords = ["text-expander", "arm64", "windows-11", "slint", "productivity"]
+categories = ["accessibility", "command-line-utilities"]
+
+[lib]
+name = "rust_expander"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rust-expander"
+path = "src/main.rs"
+
+[[bench]]
+name = "buffer_benchmark"
+harness = false
+
+[dependencies]
+# UI Framework - Slint with software renderer (safe on ARM64, no GPU driver issues)
+slint = { version = "1.17", default-features = false, features = [
+    "backend-winit",
+    "renderer-software",
+    "system-tray",
+    "compat-1-2",
+] }
+
+# Windows API bindings
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+] }
+
+# Configuration serialization
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Lock-free shared state between threads
+arc-swap = "1"
+
+[build-dependencies]
+slint-build = "1.17"

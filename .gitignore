@@ -1,0 +1,15 @@
+/target
+
+# IDE & OS files
+.idea/
+.vscode/
+*.swp
+*.bak
+Thumbs.db
+Desktop.ini
+
+# AI & Assistant Rules/Context (keep local only)
+GEMINI.md
+.agents/
+.cursorrules
+.ai/
