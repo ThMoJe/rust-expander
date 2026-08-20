@@ -7,6 +7,11 @@ on:
     tags:
       - 'v*.*.0'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish release for (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
 
 permissions:
   contents: write
@@ -88,6 +93,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
           files: |
             release_assets/*.zip
             release_assets/*.exe
